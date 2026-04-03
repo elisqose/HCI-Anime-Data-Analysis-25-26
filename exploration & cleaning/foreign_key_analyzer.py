@@ -112,13 +112,9 @@ def check_fk(
     # ── Valutazione ─────────────────────────────────────────────────────────
     _section("Valutazione integrità referenziale")
     if n_orphan == 0:
-        print("  OK – Nessuna violazione. Tutti i valori FK esistono nella tabella padre.")
+        print("Nessuna violazione. Tutti i valori FK esistono nella tabella padre.")
     else:
-        print(f"  ATTENZIONE – {n_orphan:,} riga/e ({n_orphan/total*100:.2f}%) violano l'integrità referenziale.")
-        print(f"  Queste righe hanno un '{child_name}' che non esiste in '{parent_name}'.")
-        print()
-        print(f"  Azione consigliata: eliminare le righe orfane prima di salvare il dataset pulito.")
-        print(f"    → df = df[~mask].copy()")
+        print(f"{n_orphan:,} riga/e ({n_orphan/total*100:.2f}%) violano l'integrità referenziale.")
 
     # ── ID orfani ────────────────────────────────────────────────────────────
     if orphan_ids:

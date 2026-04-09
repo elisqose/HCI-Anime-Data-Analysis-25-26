@@ -1,20 +1,9 @@
-"""
-dataset_analyzer.py
-===================
-Libreria per l'analisi di una pandas Series.
-Supporta Series numeriche e testuali.
-
-Utilizzo:
-    from dataset_analyzer import analyze
-    analyze(df['colonna'])
-"""
-
 import pandas as pd
 import numpy as np
+import unicodedata
 from collections import Counter
 import warnings
 warnings.filterwarnings("ignore")
-
 
 # Layout helpers
 
@@ -61,10 +50,101 @@ def _outlier_bounds_iqr(series):
 def _display(text: str) -> str:
     return text.replace('\r\n', '↵ ').replace('\r', '↵ ').replace('\n', '↵ ')
 
+def _visual_len(s: str) -> int:
+    """Lunghezza visiva di una stringa: i caratteri wide (es. kanji) contano 2."""
+    w = 0
+    for ch in s:
+        eaw = unicodedata.east_asian_width(ch)
+        w += 2 if eaw in ('W', 'F') else 1
+    return w
+
+def _ljust_visual(s: str, width: int) -> str:
+    return s + ' ' * max(0, width - _visual_len(s))
+
+def _rjust_visual(s: str, width: int) -> str:
+    return ' ' * max(0, width - _visual_len(s)) + s
+
+def _row_str(df, idx, skip_col=None, max_str_len=40):
+    """Restituisce una stringa compatta con tutte le colonne della riga all'indice idx."""
+    if df is None:
+        return ""
+    try:
+        row = df.loc[idx]
+    except KeyError:
+        return ""
+    parts = []
+    for col, val in row.items():
+        if col == skip_col:
+            continue
+        try:
+            if pd.isna(val):
+                continue
+        except (TypeError, ValueError):
+            pass
+        if isinstance(val, str):
+            disp = _display(val)
+            if len(disp) > max_str_len:
+                disp = disp[:max_str_len] + '…'
+            parts.append(f"{col}: {disp}")
+        elif isinstance(val, float):
+            parts.append(f"{col}: {_fmt(val)}")
+        else:
+            parts.append(f"{col}: {val}")
+    return ("  ↳  " + " | ".join(parts)) if parts else ""
+
+def _example_idx(sv, val):
+    """Restituisce il primo indice dove sv == val."""
+    matches = sv[sv == val].index
+    return matches[0] if len(matches) else None
+
+def _example_idx_containing(sv, word):
+    """Restituisce il primo indice dove sv contiene la parola word (come token)."""
+    pattern = r'(?<!\w)' + word + r'(?!\w)'
+    matches = sv[sv.str.contains(pattern, regex=True, na=False)].index
+    return matches[0] if len(matches) else None
+
+def _print_table(headers, rows, alignments=None, max_str_width=50):
+    """Stampa una tabella testuale con intestazioni e righe di dati."""
+    if alignments is None:
+        alignments = ['l'] * len(headers)
+
+    def fmt_cell(val):
+        if val is None:
+            return ""
+        try:
+            if pd.isna(val):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        if isinstance(val, str):
+            s = _display(val)
+            return (s[:max_str_width] + "…") if _visual_len(s) > max_str_width else s
+        if isinstance(val, (int, np.integer)):
+            return _fmt(val)
+        if isinstance(val, float):
+            return _fmt(val)
+        return str(val)
+
+    str_rows = [[fmt_cell(v) for v in row] for row in rows]
+    widths = [max(_visual_len(h), max((_visual_len(r[i]) for r in str_rows), default=0))
+              for i, h in enumerate(headers)]
+
+    def fmt_row(cells):
+        parts = []
+        for i, cell in enumerate(cells):
+            w = widths[i]
+            parts.append(_rjust_visual(cell, w) if alignments[i] == 'r' else _ljust_visual(cell, w))
+        return "  " + "   ".join(parts)
+
+    print(fmt_row(headers))
+    print("  " + "   ".join("─" * w for w in widths))
+    for row in str_rows:
+        print(fmt_row(row))
+
 
 # ANALISI NUMERICA
 
-def _analyze_numeric(s: pd.Series):
+def _analyze_numeric(s: pd.Series, df=None):
 
     _section("Conteggi di base")
     total  = len(s)
@@ -88,9 +168,13 @@ def _analyze_numeric(s: pd.Series):
         print("  Nessun valore valido da analizzare.")
         return
 
+    if s.dtype == np.float64 or s.dtype == np.float32:
+        n_float = int((sv % 1 != 0).sum())
+        _kv("Valori float", _fmt(n_float))
 
-    # Statistiche descrittive 
-    
+
+    # Statistiche descrittive
+
     _section("Statistiche descrittive")
     mean   = sv.mean()
     median = sv.median()
@@ -124,8 +208,8 @@ def _analyze_numeric(s: pd.Series):
     _kv("Coefficiente di variazione", f"{(std/mean*100) if mean else 0:.2f}%")
 
 
-    # Analisi outlier 
-    
+    # Analisi outlier
+
     _section("Analisi outlier")
     lo_iqr, hi_iqr = _outlier_bounds_iqr(sv)
     out_iqr = sv[(sv < lo_iqr) | (sv > hi_iqr)]
@@ -139,6 +223,9 @@ def _analyze_numeric(s: pd.Series):
         print(f"\n  Top 5 outlier estremi (per valore assoluto):")
         for idx, val in top_out.items():
             print(f"    [{idx}]  {_fmt(val)}")
+            row = _row_str(df, idx, skip_col=s.name)
+            if row:
+                print(f"    {row}")
 
     # Distribuzione
 
@@ -156,19 +243,25 @@ def _analyze_numeric(s: pd.Series):
         print(f"  {range_str:<30} {count:>10,}   {pct:>5.1f}%")
 
 
-    # Valori estremi 
-    
+    # Valori estremi
+
     _section("Valori estremi")
     top10    = sv.nlargest(10)
     bottom10 = sv.nsmallest(10)
 
     print(f"  I 10 più grandi:")
     for i, (idx, val) in enumerate(top10.items(), 1):
-        print(f"    #{i:<3} {_fmt(val)}  [indice {idx}]")
+        print(f"    #{i:<3} {_fmt(val)}")
+        row = _row_str(df, idx, skip_col=s.name)
+        if row:
+            print(f"    {row}")
 
     print(f"\n  I 10 più piccoli:")
     for i, (idx, val) in enumerate(bottom10.items(), 1):
-        print(f"    #{i:<3} {_fmt(val)}  [indice {idx}]")
+        print(f"    #{i:<3} {_fmt(val)}")
+        row = _row_str(df, idx, skip_col=s.name)
+        if row:
+            print(f"    {row}")
 
 
     # Valori più e meno frequenti
@@ -183,6 +276,11 @@ def _analyze_numeric(s: pd.Series):
     for val, cnt in vc.head(10).items():
         v = f"{_fmt(val):>20}"
         print(f"  {v}   {_fmt(cnt):>10}   {cnt/total*100:>5.1f}%")
+        ex_idx = _example_idx(sv, val)
+        if ex_idx is not None:
+            row = _row_str(df, ex_idx, skip_col=s.name)
+            if row:
+                print(f"  {row}")
 
     print(f"\n  I 10 meno frequenti:")
     print(f"  {'Valore':>20}   {'Conteggio':>10}   {'%':>6}")
@@ -190,26 +288,33 @@ def _analyze_numeric(s: pd.Series):
     for val, cnt in vc.tail(10)[::-1].items():
         v = f"{_fmt(val):>20}"
         print(f"  {v}   {_fmt(cnt):>10}   {cnt/total*100:>5.1f}%")
+        ex_idx = _example_idx(sv, val)
+        if ex_idx is not None:
+            row = _row_str(df, ex_idx, skip_col=s.name)
+            if row:
+                print(f"  {row}")
 
 
 # ANALISI TESTUALE
 
-def _analyze_string(s: pd.Series):
+def _analyze_string(s: pd.Series, df=None):
 
     _section("Conteggi di base")
     total   = len(s)
+    n_empty = (s == "").sum()
+    if n_empty > 0:
+        s = s.replace("", np.nan)
     n_null  = s.isna().sum()
     n_valid = s.notna().sum()
-    n_empty = (s == "").sum()
     n_uniq  = s.nunique()
     dup_cnt = total - n_uniq - n_null
 
-    _kv("Righe totali",       _fmt(total))
-    _kv("Valori non nulli",   f"{_fmt(n_valid)}  ({n_valid/total*100:.2f}%)")
-    _kv("Null / NaN",         f"{_fmt(n_null)}  ({n_null/total*100:.2f}%)")
-    _kv("Stringhe vuote",     f"{_fmt(n_empty)}")
-    _kv("Valori unici",       f"{_fmt(n_uniq)}  ({n_uniq/total*100:.2f}%)")
-    _kv("Valori duplicati",   f"{_fmt(dup_cnt)}")
+    _kv("Righe totali",              _fmt(total))
+    _kv("Valori non nulli",          f"{_fmt(n_valid)}  ({n_valid/total*100:.2f}%)")
+    _kv("Null / NaN",                f"{_fmt(n_null)}  ({n_null/total*100:.2f}%)")
+    _kv("  di cui stringhe vuote",   f"{_fmt(n_empty)}  (convertite a NULL)")
+    _kv("Valori unici",              f"{_fmt(n_uniq)}  ({n_uniq/total*100:.2f}%)")
+    _kv("Valori duplicati",          f"{_fmt(dup_cnt)}  ({dup_cnt/total*100:.2f}%)")
 
     sv = s.dropna().astype(str)
     if sv.empty:
@@ -217,7 +322,7 @@ def _analyze_string(s: pd.Series):
         return
 
 
-    # Analisi lunghezza stringhe 
+    # Analisi lunghezza stringhe
 
     _section("Analisi lunghezza stringhe")
     lengths = sv.str.len()
@@ -237,23 +342,27 @@ def _analyze_string(s: pd.Series):
     _kv("IQR lunghezza",            f"{_fmt(ln_q3 - ln_q1)}")
 
 
-    # Stringhe più lunghe e più corte 
+    # Stringhe più lunghe e più corte
 
     _section("Valori di lunghezza estrema")
     idx_max = lengths.nlargest(10).index
     idx_min = lengths.nsmallest(10).index
 
+    headers_len = ["#", "Lunghezza", "Valore"]
+    aligns_len  = ["r", "r", "l"]
+
+    def _len_rows(indices):
+        rows = []
+        for rank, idx in enumerate(indices, 1):
+            val = sv[idx]
+            rows.append([f"#{rank}", len(val), val])
+        return rows
+
     print(f"  Le 10 stringhe più lunghe:")
-    for rank, idx in enumerate(idx_max, 1):
-        val = sv[idx]
-        display_val = _display(val)
-        preview = display_val[:120] + "…" if len(display_val) > 120 else display_val
-        print(f"    #{rank:<3} len={len(val)}  {preview}")
+    _print_table(headers_len, _len_rows(idx_max), alignments=aligns_len)
 
     print(f"\n  Le 10 stringhe più corte:")
-    for rank, idx in enumerate(idx_min, 1):
-        val = sv[idx]
-        print(f"    #{rank:<3} len={len(val)}  {_display(val)}")
+    _print_table(headers_len, _len_rows(idx_min), alignments=aligns_len)
 
 
     # Distribuzione lunghezze
@@ -274,32 +383,28 @@ def _analyze_string(s: pd.Series):
         print(f"  Tutte le stringhe hanno la stessa lunghezza. ({ln_min} caratteri)")
 
 
-    # Valori più e meno frequenti 
+    # Valori più e meno frequenti
 
     _section("Valori più e meno frequenti")
     vc = sv.value_counts()
 
     top10 = list(vc.head(10).items())
     bot10 = list(vc.tail(10)[::-1].items())
-    all_vals = [_display(v) for v, _ in top10 + bot10]
-    col_w = max(len("Valore"), max((len(v) for v in all_vals), default=0))
+
+    headers_freq = ["Valore", "Conteggio", "%"]
+    aligns_freq  = ["l", "r", "r"]
+
+    def _freq_rows(items):
+        return [[_display(val), cnt, f"{cnt/n_valid*100:.1f}%"] for val, cnt in items]
 
     print(f"  I 10 più frequenti:")
-    print(f"  {'Valore':<{col_w}}   {'Conteggio':>10}   {'%':>6}")
-    print(f"  {'─'*col_w}   {'─'*10}   {'─'*6}")
-    for val, cnt in top10:
-        display_val = _display(val)
-        print(f"  {display_val:<{col_w}}   {_fmt(cnt):>10}   {cnt/n_valid*100:>5.1f}%")
+    _print_table(headers_freq, _freq_rows(top10), alignments=aligns_freq)
 
     print(f"\n  I 10 meno frequenti (più rari):")
-    print(f"  {'Valore':<{col_w}}   {'Conteggio':>10}   {'%':>6}")
-    print(f"  {'─'*col_w}   {'─'*10}   {'─'*6}")
-    for val, cnt in bot10:
-        display_val = _display(val)
-        print(f"  {display_val:<{col_w}}   {_fmt(cnt):>10}   {cnt/n_valid*100:>5.1f}%")
+    _print_table(headers_freq, _freq_rows(bot10), alignments=aligns_freq)
 
 
-    # Analisi pattern / contenuto 
+    # Analisi pattern / contenuto
 
     _section("Analisi pattern / contenuto")
     has_digits   = sv.str.contains(r'\d', regex=True).sum()
@@ -352,24 +457,14 @@ def _analyze_string(s: pd.Series):
         print(f"\n  Le 10 parole più comuni:")
         print(f"  {'Parola':<20}   {'Conteggio':>10}")
         print(f"  {'─'*20}   {'─'*10}")
-        max_wf = word_freq[0][1] if word_freq else 1
         for word, cnt in word_freq:
             print(f"  {word:<20}   {_fmt(cnt):>10}")
 
 
 # API PUBBLICA
 
-def analyze(series: pd.Series, name: str | None = None) -> None:
-    """
-    Stampa un'analisi completa di una pandas Series.
-
-    Parametri
-    ----------
-    series : pd.Series
-        La colonna da analizzare. Può essere numerica o testuale.
-    name   : str, opzionale
-        Nome da visualizzare. Default: series.name oppure 'Series'.
-    """
+def analyze(series: pd.Series, name: str | None = None, df: pd.DataFrame | None = None) -> None:
+    
     if not isinstance(series, pd.Series):
         raise TypeError(f"Atteso un pandas Series, ricevuto {type(series).__name__}")
 
@@ -384,14 +479,14 @@ def analyze(series: pd.Series, name: str | None = None) -> None:
 
     if _is_numeric(series):
         _kv("Tipo", "NUMERICO")
-        _analyze_numeric(series)
+        _analyze_numeric(series, df=df)
     elif _is_string(series):
         _kv("Tipo", "STRINGA / OGGETTO")
-        _analyze_string(series)
+        _analyze_string(series, df=df)
     else:
         _kv("Tipo", f"ALTRO ({dtype})")
         print("\n  Analisi automatica non disponibile per questo dtype.")
         print(f"  Tentativo di conversione a stringa…\n")
-        _analyze_string(series.astype(str))
+        _analyze_string(series.astype(str), df=df)
 
     print()

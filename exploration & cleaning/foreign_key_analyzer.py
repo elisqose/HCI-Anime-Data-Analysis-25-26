@@ -1,29 +1,9 @@
-"""
-foreign_key_analyzer.py
-=======================
-Libreria per la verifica dell'integrità referenziale tra dataset.
-Verifica che i valori di una colonna FK esistano nella colonna PK della tabella padre.
-
-Utilizzo:
-    from foreign_key_analyzer import check_fk
-
-    # Solo report
-    mask = check_fk(df_works['character_mal_id'], df_characters['character_mal_id'])
-
-    # Report + campione righe orfane
-    mask = check_fk(df_works['character_mal_id'], df_characters['character_mal_id'],
-                    child_df=df_works)
-
-    # Applicare il filtro
-    df_works_clean = df_works[~mask].copy()
-"""
-
 import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
 
 
-# ── Layout helpers (stesso stile di dataset_analyzer) ────────────────────────
+#  Layout helpers (stesso stile di dataset_analyzer) 
 
 WIDTH = 80
 
@@ -47,7 +27,7 @@ def _fmt(x):
     return str(x)
 
 
-# ── API pubblica ─────────────────────────────────────────────────────────────
+#  API pubblica 
 
 def check_fk(
     child: pd.Series,
@@ -55,26 +35,6 @@ def check_fk(
     child_df: pd.DataFrame = None,
     sample_rows: int = 10,
 ) -> pd.Series:
-    """
-    Verifica l'integrità referenziale di una FK verso una PK.
-
-    Parametri
-    ----------
-    child      : pd.Series
-        Colonna FK della tabella figlia (es. df_works['character_mal_id']).
-    parent     : pd.Series
-        Colonna PK della tabella padre (es. df_characters['character_mal_id']).
-    child_df   : pd.DataFrame, opzionale
-        Se fornito, mostra un campione delle righe orfane.
-    sample_rows : int
-        Numero massimo di righe orfane da mostrare nel campione (default 10).
-
-    Restituisce
-    -----------
-    pd.Series (bool)
-        Maschera True sulle righe orfane (FK non presente nella PK padre).
-        Usare ~mask per filtrare il dataset pulito.
-    """
 
     child_name  = child.name  or "FK"
     parent_name = parent.name or "PK"
@@ -98,7 +58,7 @@ def check_fk(
     orphan_ids  = sorted(child[mask_orphan].unique())
     n_uniq_orphan = len(orphan_ids)
 
-    # ── Riepilogo conteggi ───────────────────────────────────────────────────
+    #  Riepilogo conteggi 
     _section("Riepilogo conteggi")
     _kv("Righe totali (tabella figlia)",      _fmt(total))
     _kv("Valori null nella FK",               f"{_fmt(n_null_fk)}  ({n_null_fk/total*100:.2f}%)")
@@ -109,21 +69,21 @@ def check_fk(
     _kv("✗  Righe orfane (FK non in PK)",     f"{_fmt(n_orphan)}  ({n_orphan/total*100:.2f}%)")
     _kv("   → ID orfani unici",               _fmt(n_uniq_orphan))
 
-    # ── Valutazione ─────────────────────────────────────────────────────────
+    #  Valutazione 
     _section("Valutazione integrità referenziale")
     if n_orphan == 0:
         print("Nessuna violazione. Tutti i valori FK esistono nella tabella padre.")
     else:
         print(f"{n_orphan:,} riga/e ({n_orphan/total*100:.2f}%) violano l'integrità referenziale.")
 
-    # ── ID orfani ────────────────────────────────────────────────────────────
+    #  ID orfani 
     if orphan_ids:
         _section("ID orfani")
         preview = orphan_ids[:20]
         suffix  = f"  … (+{n_uniq_orphan - 20} altri)" if n_uniq_orphan > 20 else ""
         print(f"  {preview}{suffix}")
 
-    # ── Campione righe orfane ────────────────────────────────────────────────
+    #  Campione righe orfane 
     if child_df is not None and n_orphan > 0:
         _section(f"Campione righe orfane (prime {min(sample_rows, n_orphan)})")
         sample = child_df[mask_orphan].head(sample_rows)

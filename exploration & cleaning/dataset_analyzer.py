@@ -430,18 +430,6 @@ def _analyze_string(s: pd.Series, df=None):
     _kv("Solo alfanumerico",          f"{_fmt(all_alphanum)}")
 
 
-    # Statistiche a livello di carattere
-
-    _section("Statistiche a livello di carattere")
-    all_chars  = "".join(sv.values)
-    n_chars    = len(all_chars)
-    uniq_chars = len(set(all_chars))
-
-    _kv("Caratteri totali",         _fmt(n_chars))
-    _kv("Caratteri unici",          _fmt(uniq_chars))
-    _kv("Caratteri medi per valore",f"{n_chars/n_valid:.2f}")
-
-
     # Analisi parole / token (solo se multi-parola)
 
     avg_words = sv.str.split().str.len().mean()

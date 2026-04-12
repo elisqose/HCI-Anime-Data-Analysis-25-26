@@ -96,3 +96,84 @@ def check_fk(
 
     print()
     return mask_orphan
+
+
+def check_pk_referenced(
+    parent: pd.Series,
+    children: dict,
+    parent_df: pd.DataFrame = None,
+    sample_rows: int = 10,
+) -> pd.Series:
+    """
+    Controllo inverso rispetto a check_fk.
+
+    Verifica quali valori della PK (tabella padre) sono referenziati
+    da almeno una delle tabelle figlie fornite.
+
+    Parametri
+    ---------
+    parent   : Series con i valori PK da controllare (es. gli ID anomali)
+    children : dict { nome_tabella: Series_FK } — le colonne FK delle tabelle figlie
+    parent_df: DataFrame padre opzionale, usato per stampare un campione
+               delle righe non referenziate
+    sample_rows: numero di righe nel campione
+
+    Ritorna
+    -------
+    mask_unreferenced : maschera booleana True sulle righe di parent_df
+                        i cui ID non compaiono in nessuna tabella figlia
+    """
+
+    parent_name = parent.name or "PK"
+
+    # ── Intestazione ────────────────────────────────────────────────────────
+    print()
+    _kv("Colonna PK  (tabella padre)", str(parent_name))
+    _kv("Tabelle figlie verificate",   ", ".join(children.keys()))
+    _hr()
+
+    pk_values = set(parent.dropna().unique())
+    total_pk  = len(pk_values)
+
+    # ── Conteggio per tabella figlia ─────────────────────────────────────────
+    _section("Referenze per tabella figlia")
+    referenced_union = set()
+
+    for name, fk_series in children.items():
+        fk_vals      = set(fk_series.dropna().unique())
+        found        = pk_values & fk_vals
+        n_found      = len(found)
+        referenced_union |= found
+        _kv(f"  {name}", f"{_fmt(n_found)} / {_fmt(total_pk)} ID trovati  ({n_found/total_pk*100:.1f}%)")
+
+    # ── Riepilogo globale ────────────────────────────────────────────────────
+    _section("Riepilogo globale")
+    n_referenced   = len(referenced_union)
+    n_unreferenced = total_pk - n_referenced
+    _kv("PK totali analizzati",               _fmt(total_pk))
+    _kv("✓  Referenziati in almeno 1 figlia", f"{_fmt(n_referenced)}  ({n_referenced/total_pk*100:.1f}%)")
+    _kv("✗  Non referenziati in nessuna",     f"{_fmt(n_unreferenced)}  ({n_unreferenced/total_pk*100:.1f}%)")
+
+    # ── ID non referenziati ──────────────────────────────────────────────────
+    unreferenced_ids = sorted(pk_values - referenced_union)
+    if unreferenced_ids:
+        _section("ID non referenziati (rimovibili in sicurezza)")
+        preview = unreferenced_ids[:20]
+        joined  = ", ".join(str(v) for v in preview)
+        for line in textwrap.wrap(joined, width=WIDTH - 2):
+            print(f"  {line}")
+        if n_unreferenced > 20:
+            print(f"  … (+{n_unreferenced - 20} altri)")
+    else:
+        _section("ID non referenziati")
+        print("  Tutti gli ID sono referenziati in almeno una tabella figlia.")
+
+    # ── Campione righe non referenziate ─────────────────────────────────────
+    mask_unreferenced = parent.isin(unreferenced_ids)
+    if parent_df is not None and mask_unreferenced.any():
+        _section(f"Campione righe non referenziate (prime {min(sample_rows, mask_unreferenced.sum())})")
+        sample_df = parent_df[parent_df[parent_name].isin(unreferenced_ids)]
+        print(sample_df.head(sample_rows).to_string(index=True))
+
+    print()
+    return mask_unreferenced

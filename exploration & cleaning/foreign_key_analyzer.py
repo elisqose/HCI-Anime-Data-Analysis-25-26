@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+import textwrap
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -20,10 +22,10 @@ def _kv(key, value, key_width=35):
     print(f"  {key:<{key_width}} {value}")
 
 def _fmt(x):
+    if isinstance(x, (int, np.integer)):
+        return f"{x:,}"
     if isinstance(x, float):
         return f"{x:,.4f}"
-    if isinstance(x, int):
-        return f"{x:,}"
     return str(x)
 
 
@@ -76,12 +78,15 @@ def check_fk(
     else:
         print(f"{n_orphan:,} riga/e ({n_orphan/total*100:.2f}%) violano l'integrità referenziale.")
 
-    #  ID orfani 
+    #  ID orfani
     if orphan_ids:
         _section("ID orfani")
         preview = orphan_ids[:20]
-        suffix  = f"  … (+{n_uniq_orphan - 20} altri)" if n_uniq_orphan > 20 else ""
-        print(f"  {preview}{suffix}")
+        joined  = ", ".join(str(v) for v in preview)
+        for line in textwrap.wrap(joined, width=WIDTH - 2):
+            print(f"  {line}")
+        if n_uniq_orphan > 20:
+            print(f"  … (+{n_uniq_orphan - 20} altri)")
 
     #  Campione righe orfane 
     if child_df is not None and n_orphan > 0:

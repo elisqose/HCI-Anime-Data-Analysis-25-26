@@ -78,17 +78,7 @@ def check_fk(
     else:
         print(f"{n_orphan:,} riga/e ({n_orphan/total*100:.2f}%) violano l'integrità referenziale.")
 
-    #  ID orfani
-    if orphan_ids:
-        _section("ID orfani")
-        preview = orphan_ids[:20]
-        joined  = ", ".join(str(v) for v in preview)
-        for line in textwrap.wrap(joined, width=WIDTH - 2):
-            print(f"  {line}")
-        if n_uniq_orphan > 20:
-            print(f"  … (+{n_uniq_orphan - 20} altri)")
-
-    #  Campione righe orfane 
+    #  Campione righe orfane
     if child_df is not None and n_orphan > 0:
         _section(f"Campione righe orfane (prime {min(sample_rows, n_orphan)})")
         sample = child_df[mask_orphan].head(sample_rows)
